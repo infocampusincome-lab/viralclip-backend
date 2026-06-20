@@ -4,7 +4,6 @@ import { getProducts, getProduct, getShopInfo } from '../services/shopify.js'
 
 const router = express.Router()
 
-// GET /products — list all store products
 router.get('/', requireShop, async (req, res) => {
   try {
     const { session, shop } = req
@@ -16,7 +15,16 @@ router.get('/', requireShop, async (req, res) => {
   }
 })
 
-// GET /products/:id — single product detail
+router.get('/shop/info', requireShop, async (req, res) => {
+  try {
+    const { session, shop } = req
+    const info = await getShopInfo(shop, session.access_token)
+    res.json({ shop: info })
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch shop info' })
+  }
+})
+
 router.get('/:id', requireShop, async (req, res) => {
   try {
     const { session, shop } = req
@@ -25,17 +33,6 @@ router.get('/:id', requireShop, async (req, res) => {
   } catch (err) {
     console.error('Product fetch error:', err)
     res.status(500).json({ error: 'Failed to fetch product' })
-  }
-})
-
-// GET /products/shop/info
-router.get('/shop/info', requireShop, async (req, res) => {
-  try {
-    const { session, shop } = req
-    const info = await getShopInfo(shop, session.access_token)
-    res.json({ shop: info })
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch shop info' })
   }
 })
 
