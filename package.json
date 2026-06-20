@@ -1,19 +1,20 @@
-PORT=3001
-
-# Shopify App credentials (from Shopify Partners dashboard)
-SHOPIFY_API_KEY=your_shopify_api_key
-SHOPIFY_API_SECRET=your_shopify_api_secret
-SHOPIFY_SCOPES=read_products,read_themes,write_files
-HOST=https://your-backend.onrender.com
-
-# Groq AI
-GROQ_API_KEY=your_groq_api_key
-
-# PostgreSQL (Render internal URL)
-DATABASE_URL=postgresql://user:password@host:5432/viralclip
-
-# Frontend URL (Netlify)
-FRONTEND_URL=https://your-app.netlify.app
-
-# App
-APP_SECRET=your_random_secret_string
+{
+  "name": "viralclip-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "fluent-ffmpeg": "^2.1.3",
+    "groq-sdk": "^0.5.0",
+    "pg": "^8.12.0",
+    "uuid": "^10.0.0",
+    "node-fetch": "^3.3.2"
+  }
+}
