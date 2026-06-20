@@ -1,25 +1,35 @@
-services:
-  - type: web
-    name: viralclip-backend
-    env: node
-    buildCommand: npm install
-    startCommand: node server.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3001
-      - key: SHOPIFY_API_KEY
-        sync: false
-      - key: SHOPIFY_API_SECRET
-        sync: false
-      - key: SHOPIFY_SCOPES
-        value: read_products,read_themes
-      - key: HOST
-        sync: false
-      - key: GROQ_API_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
+import express from 'express'
+import cors from 'cors'
+import dotenv from 'dotenv'
+import { initDB } from './db/index.js'
+import authRouter from './routes/auth.js'
+import productsRouter from './routes/products.js'
+import generateRouter from './routes/generate.js'
+
+dotenv.config()
+
+const app = express()
+const PORT = process.env.PORT || 3001
+
+app.use(cors({
+  origin: [process.env.FRONTEND_URL, 'https://admin.shopify.com'],
+  credentials: true
+}))
+
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
+
+app.get('/health', (_, res) => res.json({ status: 'ok', service: 'viralclip-backend' }))
+
+app.use('/auth', authRouter)
+app.use('/products', productsRouter)
+app.use('/generate', generateRouter)
+
+async function start() {
+  await initDB()
+  app.listen(PORT, () => {
+    console.log(`ViralClip backend running on port ${PORT}`)
+  })
+}
+
+start().catch(console.error)
