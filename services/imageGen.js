@@ -9,14 +9,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const OUTPUT_DIR = path.join(__dirname, '../outputs')
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
 
-// Download image buffer from URL
 async function fetchImageBuffer(url) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Failed to fetch image: ${url}`)
   return Buffer.from(await res.arrayBuffer())
 }
 
-// Escape XML special characters for SVG text
 function escapeXml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -26,18 +24,16 @@ function escapeXml(str) {
     .replace(/'/g, '&apos;')
 }
 
-// Truncate text to max length
 function truncate(str, max) {
   return str.length > max ? str.slice(0, max - 3) + '...' : str
 }
 
-// ─── NORMAL IMAGE AD ───────────────────────────────────────────────
+// ─── NORMAL IMAGE AD (1080x1080) ───────────────────────────────────
 export async function generateNormalImage({ imageUrl, headline, subtext, cta, price, currency }) {
   const W = 1080, H = 1080
   const jobId = uuidv4()
   const outputPath = path.join(OUTPUT_DIR, `${jobId}.png`)
 
-  // Fetch and resize product image
   const imgBuffer = await fetchImageBuffer(imageUrl)
   const resized = await sharp(imgBuffer)
     .resize(W, H, { fit: 'cover', position: 'centre' })
@@ -49,30 +45,32 @@ export async function generateNormalImage({ imageUrl, headline, subtext, cta, pr
   const safePrice = escapeXml(`${currency} ${price}`)
 
   const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <!-- Dark gradient overlay bottom -->
     <defs>
       <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="55%" stop-color="#000000" stop-opacity="0.5"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0.92"/>
+        <stop offset="50%" stop-color="#000000" stop-opacity="0.4"/>
+        <stop offset="100%" stop-color="#000000" stop-opacity="0.93"/>
       </linearGradient>
     </defs>
+
     <rect width="${W}" height="${H}" fill="url(#grad)"/>
 
-    <!-- Price badge top right -->
-    <rect x="${W - 200}" y="40" width="160" height="56" rx="28" fill="#7B61FF"/>
-    <text x="${W - 120}" y="76" font-family="Arial Black, Arial" font-size="26" font-weight="900" fill="white" text-anchor="middle">${safePrice}</text>
+    <!-- Price badge -->
+    <rect x="${W - 210}" y="36" width="174" height="58" rx="29" fill="#7B61FF"/>
+    <text x="${W - 123}" y="74" font-family="Arial Black, Arial" font-size="26" font-weight="900" fill="white" text-anchor="middle">${safePrice}</text>
 
     <!-- Headline -->
-    <text x="60" y="${H - 220}" font-family="Arial Black, Arial" font-size="62" font-weight="900" fill="white" text-anchor="start"
-      style="filter: drop-shadow(0 2px 8px rgba(0,0,0,0.8))">${safeHeadline}</text>
+    <text x="56" y="${H - 226}" font-family="Arial Black, Arial" font-size="60" font-weight="900" fill="white">${safeHeadline}</text>
 
     <!-- Subtext -->
-    <text x="60" y="${H - 148}" font-family="Arial, sans-serif" font-size="34" fill="rgba(255,255,255,0.88)" text-anchor="start">${safeSubtext}</text>
+    <text x="56" y="${H - 154}" font-family="Arial, sans-serif" font-size="32" fill="rgba(255,255,255,0.88)">${safeSubtext}</text>
 
     <!-- CTA bar -->
-    <rect x="0" y="${H - 110}" width="${W}" height="110" fill="#7B61FF"/>
-    <text x="${W / 2}" y="${H - 42}" font-family="Arial Black, Arial" font-size="38" font-weight="900" fill="white" text-anchor="middle">${safeCta} →</text>
+    <rect x="0" y="${H - 112}" width="${W}" height="112" fill="#7B61FF"/>
+    <text x="${W / 2}" y="${H - 40}" font-family="Arial Black, Arial" font-size="38" font-weight="900" fill="white" text-anchor="middle">${safeCta} →</text>
+
+    <!-- Watermark -->
+    <text x="${W - 20}" y="${H - 124}" font-family="Arial, sans-serif" font-size="18" fill="rgba(255,255,255,0.25)" text-anchor="end">ViralClip</text>
   </svg>`
 
   await sharp(resized)
@@ -83,78 +81,90 @@ export async function generateNormalImage({ imageUrl, headline, subtext, cta, pr
   return { jobId, outputPath, filename: `${jobId}.png` }
 }
 
-// ─── UGC STYLE IMAGE ───────────────────────────────────────────────
+// ─── UGC STYLE IMAGE (1080x1920 vertical) ──────────────────────────
 export async function generateUGCImage({ imageUrl, headline, caption, storeName }) {
-  const W = 1080, H = 1920 // TikTok/Reels vertical format
+  const W = 1080, H = 1920
   const jobId = uuidv4()
   const outputPath = path.join(OUTPUT_DIR, `${jobId}.png`)
 
-  // Fetch and resize product image for phone screen area
+  const PHONE_LEFT = 100
+  const PHONE_TOP = 120
+  const PHONE_W = 880
+  const PHONE_H = 1300
+  const IMG_TOP = 168
+  const IMG_H = 1050
+
+  // Fetch and resize product image to fit inside phone screen
   const imgBuffer = await fetchImageBuffer(imageUrl)
-  const phoneImgW = 880
-  const phoneImgH = 1100
   const phoneImg = await sharp(imgBuffer)
-    .resize(phoneImgW, phoneImgH, { fit: 'cover', position: 'centre' })
+    .resize(PHONE_W, IMG_H, { fit: 'cover', position: 'centre' })
+    .png()
     .toBuffer()
 
-  const safeHeadline = escapeXml(truncate(headline, 50))
-  const safeCaption = escapeXml(truncate(caption, 80))
-  const safeStore = escapeXml(storeName || 'Shop Now')
-
-  // Background
+  // Dark background
   const bg = await sharp({
-    create: { width: W, height: H, channels: 4, background: { r: 15, g: 15, b: 20, alpha: 1 } }
+    create: { width: W, height: H, channels: 4, background: { r: 12, g: 12, b: 18, alpha: 1 } }
   }).png().toBuffer()
 
+  const safeHeadline = escapeXml(truncate(headline, 45))
+  const safeCaption = escapeXml(truncate(caption, 75))
+  const safeStore = escapeXml(truncate(storeName || 'yourstore', 24))
+
+  // SVG layer — drawn ON TOP of the product image
+  // Key fix: NO solid rect covering the image area — only the phone frame border and overlays
   const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <!-- Phone frame -->
-    <rect x="100" y="120" width="880" height="1300" rx="60" fill="#1a1a2e" stroke="#333" stroke-width="3"/>
-    
-    <!-- Phone notch -->
-    <rect x="380" y="132" width="120" height="24" rx="12" fill="#111"/>
-
-    <!-- Image area inside phone (composited separately) -->
-    <rect x="100" y="160" width="880" height="1100" fill="#222"/>
-
-    <!-- Image overlay gradient -->
     <defs>
-      <linearGradient id="phoneGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="60%" stop-color="#000000" stop-opacity="0"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0.85"/>
+      <linearGradient id="imgGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="50%" stop-color="#000000" stop-opacity="0"/>
+        <stop offset="100%" stop-color="#000000" stop-opacity="0.82"/>
       </linearGradient>
+      <clipPath id="phoneClip">
+        <rect x="${PHONE_LEFT}" y="${PHONE_TOP}" width="${PHONE_W}" height="${PHONE_H}" rx="56"/>
+      </clipPath>
     </defs>
-    <rect x="100" y="160" width="880" height="1100" fill="url(#phoneGrad)"/>
 
-    <!-- POV text top of phone -->
-    <text x="140" y="230" font-family="Arial, sans-serif" font-size="28" fill="rgba(255,255,255,0.7)">POV: You found the perfect product 👀</text>
+    <!-- Phone outer frame -->
+    <rect x="${PHONE_LEFT}" y="${PHONE_TOP}" width="${PHONE_W}" height="${PHONE_H}" rx="56" fill="none" stroke="#444" stroke-width="6"/>
 
-    <!-- Headline over image bottom -->
-    <text x="140" y="${160 + 1100 - 80}" font-family="Arial Black, Arial" font-size="44" font-weight="900" fill="white">${safeHeadline}</text>
+    <!-- Gradient over image bottom half only -->
+    <rect x="${PHONE_LEFT}" y="${IMG_TOP}" width="${PHONE_W}" height="${IMG_H}" fill="url(#imgGrad)" clip-path="url(#phoneClip)"/>
 
-    <!-- TikTok-style right sidebar icons -->
-    <text x="940" y="700" font-size="40" text-anchor="middle" fill="white">❤️</text>
-    <text x="940" y="760" font-size="22" text-anchor="middle" fill="white">24k</text>
-    <text x="940" y="820" font-size="40" text-anchor="middle" fill="white">💬</text>
-    <text x="940" y="880" font-size="40" text-anchor="middle" fill="white">↗️</text>
+    <!-- Phone notch -->
+    <rect x="390" y="134" width="100" height="22" rx="11" fill="#1a1a1a"/>
 
-    <!-- Bottom bar username + caption -->
-    <rect x="100" y="1260" width="880" height="160" rx="0" fill="#111122"/>
-    <text x="140" y="1305" font-family="Arial Black, Arial" font-size="28" font-weight="900" fill="white">@${safeStore}</text>
-    <text x="140" y="1345" font-family="Arial, sans-serif" font-size="24" fill="rgba(255,255,255,0.8)">${safeCaption}</text>
-    <text x="140" y="1385" font-family="Arial, sans-serif" font-size="22" fill="#7B61FF">#viral #musthave #trending</text>
+    <!-- POV caption top of screen -->
+    <text x="140" y="222" font-family="Arial, sans-serif" font-size="26" fill="rgba(255,255,255,0.85)">POV: You found the perfect product 👀</text>
 
-    <!-- Bottom phone bar -->
-    <rect x="100" y="1420" width="880" height="200" rx="0" fill="#111"/>
-    <rect x="440" y="1560" width="200" height="8" rx="4" fill="rgba(255,255,255,0.3)"/>
+    <!-- Headline at bottom of image -->
+    <text x="136" y="${IMG_TOP + IMG_H - 70}" font-family="Arial Black, Arial" font-size="46" font-weight="900" fill="white">${safeHeadline}</text>
 
-    <!-- Watermark -->
-    <text x="${W / 2}" y="${H - 30}" font-family="Arial, sans-serif" font-size="22" fill="rgba(255,255,255,0.3)" text-anchor="middle">Made with ViralClip</text>
+    <!-- TikTok right sidebar -->
+    <text x="952" y="660" font-size="42" text-anchor="middle" fill="white">❤️</text>
+    <text x="952" y="714" font-size="21" font-family="Arial, sans-serif" font-weight="700" text-anchor="middle" fill="white">24k</text>
+    <text x="952" y="784" font-size="42" text-anchor="middle" fill="white">💬</text>
+    <text x="952" y="854" font-size="42" text-anchor="middle" fill="white">↗️</text>
+    <text x="952" y="924" font-size="42" text-anchor="middle" fill="white">🔖</text>
+
+    <!-- Bottom info bar inside phone -->
+    <rect x="${PHONE_LEFT}" y="${IMG_TOP + IMG_H}" width="${PHONE_W}" height="182" fill="#0e0e18"/>
+    <text x="140" y="${IMG_TOP + IMG_H + 44}" font-family="Arial Black, Arial" font-size="28" font-weight="900" fill="white">@${safeStore}</text>
+    <text x="140" y="${IMG_TOP + IMG_H + 82}" font-family="Arial, sans-serif" font-size="23" fill="rgba(255,255,255,0.82)">${safeCaption}</text>
+    <text x="140" y="${IMG_TOP + IMG_H + 118}" font-family="Arial, sans-serif" font-size="22" fill="#7B61FF">#viral #musthave #trending</text>
+
+    <!-- Phone bottom bar -->
+    <rect x="${PHONE_LEFT}" y="${IMG_TOP + IMG_H + 182}" width="${PHONE_W}" height="${PHONE_H - IMG_H - 182 + PHONE_TOP - PHONE_TOP}" fill="#080810" rx="0"/>
+    <rect x="440" y="1548" width="200" height="7" rx="4" fill="rgba(255,255,255,0.25)"/>
+
+    <!-- Watermark below phone -->
+    <text x="${W / 2}" y="${H - 28}" font-family="Arial, sans-serif" font-size="22" fill="rgba(255,255,255,0.22)" text-anchor="middle">Made with ViralClip</text>
   </svg>`
 
   await sharp(bg)
     .composite([
-      { input: phoneImg, top: 160, left: 100 },
-      { input: Buffer.from(svg), top: 0, left: 0 }
+      // 1. Product image inside phone screen area
+      { input: phoneImg, top: IMG_TOP, left: PHONE_LEFT, blend: 'over' },
+      // 2. SVG overlays (frame, gradient, text) on top
+      { input: Buffer.from(svg), top: 0, left: 0, blend: 'over' }
     ])
     .png()
     .toFile(outputPath)
