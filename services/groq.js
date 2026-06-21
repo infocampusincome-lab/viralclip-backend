@@ -47,3 +47,31 @@ Generate a SHORT video ad text package. Respond ONLY in JSON, no markdown, no ex
     }
   }
 }
+
+export async function generateImagePrompt({ productTitle, creatorType }) {
+  const prompt = `You are an expert at writing AI image generation prompts for UGC (User Generated Content) ads.
+
+Product: ${productTitle}
+Creator type: ${creatorType}
+
+Write a detailed image generation prompt for a realistic UGC-style photo. The image should look like an authentic social media post from a real customer.
+
+Requirements:
+- ${creatorType} holding or using the product naturally
+- Casual, authentic setting (home, outdoors, lifestyle)
+- Natural lighting, candid feel
+- TikTok/Instagram UGC style
+- High quality, photorealistic
+- No text in the image
+
+Respond with ONLY the prompt text, nothing else. Max 100 words.`
+
+  const response = await groq.chat.completions.create({
+    model: 'llama-3.3-70b-versatile',
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.9,
+    max_tokens: 150
+  })
+
+  return response.choices[0].message.content.trim()
+}
