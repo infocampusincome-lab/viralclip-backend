@@ -1,10 +1,9 @@
 import express from 'express'
 import path from 'path'
 import fs from 'fs'
-import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { requireShop } from '../middleware/auth.js'
-import { generateAdCopy } from '../services/groq.js'
+import { generateAdCopy, generateImagePrompt } from '../services/groq.js'
 import { getProduct, getShopInfo } from '../services/shopify.js'
 import { generateNormalImage, generateUGCImage } from '../services/imageGen.js'
 import { query } from '../db/index.js'
@@ -14,6 +13,7 @@ const router = express.Router()
 
 const PLAN_LIMITS = { free: 999, starter: 30, pro: 100, unlimited: 99999 }
 
+// TEMP ADMIN — remove before App Store submission
 router.get('/admin-reset', async (req, res) => {
   try {
     await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited'`)
@@ -23,6 +23,7 @@ router.get('/admin-reset', async (req, res) => {
   }
 })
 
+// POST /generate/copy
 router.post('/copy', requireShop, async (req, res) => {
   const { productId, style, cta } = req.body
   const { session, shop } = req
@@ -45,8 +46,26 @@ router.post('/copy', requireShop, async (req, res) => {
   }
 })
 
+// POST /generate/prompt — generate AI image prompt for UGC
+router.post('/prompt', requireShop, async (req, res) => {
+  const { productId, creatorType } = req.body
+  const { session, shop } = req
+  try {
+    const product = await getProduct(shop, session.access_token, productId)
+    const prompt = await generateImagePrompt({
+      productTitle: product.title,
+      creatorType: creatorType || 'young woman'
+    })
+    res.json({ prompt })
+  } catch (err) {
+    console.error('Prompt gen error:', err)
+    res.status(500).json({ error: 'Failed to generate prompt' })
+  }
+})
+
+// POST /generate/image — Normal or UGC image
 router.post('/image', requireShop, async (req, res) => {
-  const { productId, style, imageType, headline, subtext, cta } = req.body
+  const { productId, style, imageType, headline, subtext, cta, aiImageUrl } = req.body
   const { session, shop } = req
 
   const limit = PLAN_LIMITS[session.plan] || PLAN_LIMITS.free
@@ -79,8 +98,10 @@ router.post('/image', requireShop, async (req, res) => {
     let result
 
     if (imageType === 'ugc') {
+      // Use AI-generated image URL from frontend if provided, else fallback to product image
+      const imageUrl = aiImageUrl || product.images[0]
       result = await generateUGCImage({
-        imageUrl: product.images[0],
+        imageUrl,
         headline: finalHeadline,
         caption: copy.caption,
         storeName: shopInfo.name
@@ -119,6 +140,7 @@ router.post('/image', requireShop, async (req, res) => {
   }
 })
 
+// GET /generate/download/:filename
 router.get('/download/:filename', requireShop, (req, res) => {
   const { filename } = req.params
   if (!/^[a-f0-9-]{36}\.(png|mp4)$/.test(filename)) {
@@ -136,6 +158,7 @@ router.get('/download/:filename', requireShop, (req, res) => {
   })
 })
 
+// GET /generate/history
 router.get('/history', requireShop, async (req, res) => {
   const { shop } = req
   const result = await query(
@@ -146,6 +169,7 @@ router.get('/history', requireShop, async (req, res) => {
   res.json({ videos: result.rows })
 })
 
+// GET /generate/usage
 router.get('/usage', requireShop, async (req, res) => {
   const { session } = req
   const limit = PLAN_LIMITS[session.plan] || PLAN_LIMITS.free
