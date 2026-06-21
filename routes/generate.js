@@ -14,10 +14,10 @@ const router = express.Router()
 
 const PLAN_LIMITS = { free: 5, starter: 30, pro: 100, unlimited: 99999 }
 
-router.get('/admin-reset/:shop(*)', async (req, res) => {
+router.get('/admin-reset', async (req, res) => {
   try {
-    await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited' WHERE shop = $1`, [req.params.shop])
-    res.json({ success: true, message: `Reset ${req.params.shop} to unlimited` })
+    await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited'`)
+    res.json({ success: true, message: 'All sessions reset to unlimited' })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
