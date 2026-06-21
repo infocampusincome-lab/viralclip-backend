@@ -148,4 +148,11 @@ router.get('/usage', requireShop, async (req, res) => {
   })
 })
 
+// Admin reset — remove before going live
+router.get('/admin/reset/:shop', async (req, res) => {
+  const { shop } = req.params
+  await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited' WHERE shop = $1`, [shop])
+  res.json({ success: true, message: `Reset ${shop} to unlimited` })
+})
+
 export default router
