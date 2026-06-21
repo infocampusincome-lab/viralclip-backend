@@ -12,7 +12,7 @@ import { query } from '../db/index.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const router = express.Router()
 
-const PLAN_LIMITS = { free: 5, starter: 30, pro: 100, unlimited: 99999 }
+const PLAN_LIMITS = { free: 999, starter: 30, pro: 100, unlimited: 99999 }
 
 router.get('/admin-reset', async (req, res) => {
   try {
