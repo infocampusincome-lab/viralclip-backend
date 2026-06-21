@@ -14,6 +14,15 @@ const router = express.Router()
 
 const PLAN_LIMITS = { free: 5, starter: 30, pro: 100, unlimited: 99999 }
 
+router.get('/admin-reset/:shop', async (req, res) => {
+  try {
+    await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited' WHERE shop = $1`, [req.params.shop])
+    res.json({ success: true, message: `Reset ${req.params.shop} to unlimited` })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 router.post('/copy', requireShop, async (req, res) => {
   const { productId, style, cta } = req.body
   const { session, shop } = req
@@ -146,16 +155,6 @@ router.get('/usage', requireShop, async (req, res) => {
     plan: session.plan,
     remaining: Math.max(0, limit - session.videos_used)
   })
-})
-
-// TEMP ADMIN — remove before App Store submission
-router.get("/admin-reset/:shop", async (req, res) => {
-  try {
-    await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited' WHERE shop = $1`, [req.params.shop])
-    res.json({ success: true, message: `Reset ${req.params.shop} to unlimited` })
-  } catch (err) {
-    res.status(500).json({ error: err.message })
-  }
 })
 
 export default router
