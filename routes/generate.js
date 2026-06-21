@@ -148,11 +148,14 @@ router.get('/usage', requireShop, async (req, res) => {
   })
 })
 
-// Admin reset — remove before going live
-router.get('/admin/reset/:shop', async (req, res) => {
-  const { shop } = req.params
-  await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited' WHERE shop = $1`, [shop])
-  res.json({ success: true, message: `Reset ${shop} to unlimited` })
+// TEMP ADMIN — remove before App Store submission
+router.get("/admin-reset/:shop", async (req, res) => {
+  try {
+    await query(`UPDATE sessions SET videos_used = 0, plan = 'unlimited' WHERE shop = $1`, [req.params.shop])
+    res.json({ success: true, message: `Reset ${req.params.shop} to unlimited` })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
 })
 
 export default router
