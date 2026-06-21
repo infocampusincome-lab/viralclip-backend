@@ -49,29 +49,32 @@ Generate a SHORT video ad text package. Respond ONLY in JSON, no markdown, no ex
 }
 
 export async function generateImagePrompt({ productTitle, creatorType }) {
-  const prompt = `You are an expert at writing AI image generation prompts for UGC (User Generated Content) ads.
+  const prompt = `You are an expert photographer and AI image prompt engineer specializing in UGC (User Generated Content) ads for ecommerce.
 
-Product: ${productTitle}
-Creator type: ${creatorType}
+Product: "${productTitle}"
+Creator: ${creatorType}
 
-Write a detailed image generation prompt for a realistic UGC-style photo. The image should look like an authentic social media post from a real customer.
+Write a PHOTOREALISTIC image generation prompt. Rules:
+- Be extremely specific about what the person is doing with the product
+- The product must be the EXACT item: "${productTitle}" — do not replace it with something else
+- Real photograph style, NOT illustration, NOT cartoon, NOT painting, NOT anime
+- Person must be clearly visible and naturally interacting with the product
+- Casual indoor or outdoor setting with natural light
+- Shot like a smartphone selfie or candid photo
+- Mention: "RAW photo, photorealistic, 85mm lens, natural lighting, UGC style, authentic, candid"
+- NO text, NO watermarks, NO logos in image
 
-Requirements:
-- ${creatorType} holding or using the product naturally
-- Casual, authentic setting (home, outdoors, lifestyle)
-- Natural lighting, candid feel
-- TikTok/Instagram UGC style
-- High quality, photorealistic
-- No text in the image
-
-Respond with ONLY the prompt text, nothing else. Max 100 words.`
+Respond with ONLY the prompt. Max 80 words.`
 
   const response = await groq.chat.completions.create({
     model: 'llama-3.3-70b-versatile',
     messages: [{ role: 'user', content: prompt }],
-    temperature: 0.9,
-    max_tokens: 150
+    temperature: 0.7,
+    max_tokens: 120
   })
 
-  return response.choices[0].message.content.trim()
+  const basePrompt = response.choices[0].message.content.trim()
+  
+  // Append quality boosters and anti-cartoon terms
+  return `${basePrompt}, RAW photo, photorealistic, DSLR, 85mm lens, natural lighting, UGC content, authentic, candid shot, real person, NOT cartoon, NOT illustration, NOT anime, NOT drawing, hyperrealistic, shot on iPhone`
 }
