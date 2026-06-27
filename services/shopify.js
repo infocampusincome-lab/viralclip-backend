@@ -16,34 +16,110 @@ export async function shopifyFetch(shop, accessToken, endpoint) {
 }
 
 export async function getProducts(shop, accessToken, limit = 20) {
-  const data = await shopifyFetch(shop, accessToken, `products.json?limit=${limit}&fields=id,title,images,variants`)
-  return data.products.map(p => ({
-    id: p.id,
+  const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: `{
+        products(first: ${limit}) {
+          edges {
+            node {
+              id
+              title
+              variants(first: 1) { edges { node { price } } }
+              images(first: 3) { edges { node { url } } }
+            }
+          }
+        }
+      }`
+    })
+  })
+
+  console.log('GraphQL status:', res.status)
+  const data = await res.json()
+  console.log('GraphQL response:', JSON.stringify(data).slice(0, 300))
+
+  if (!data.data) throw new Error(`GraphQL error: ${JSON.stringify(data)}`)
+
+  return data.data.products.edges.map(({ node: p }) => ({
+    id: p.id.split('/').pop(),
     title: p.title,
-    price: p.variants?.[0]?.price || '0.00',
-    images: p.images.map(img => img.src),
-    thumbnail: p.images?.[0]?.src || null
+    price: p.variants.edges[0]?.node.price || '0.00',
+    images: p.images.edges.map(e => e.node.url),
+    thumbnail: p.images.edges[0]?.node.url || null
   }))
 }
 
 export async function getProduct(shop, accessToken, productId) {
-  const data = await shopifyFetch(shop, accessToken, `products/${productId}.json`)
-  const p = data.product
+  const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: `{
+        product(id: "gid://shopify/Product/${productId}") {
+          id
+          title
+          descriptionHtml
+          variants(first: 1) { edges { node { price } } }
+          images(first: 5) { edges { node { url } } }
+        }
+      }`
+    })
+  })
+
+  const data = await res.json()
+  console.log('Product GraphQL:', JSON.stringify(data).slice(0, 200))
+
+  if (!data.data?.product) throw new Error(`Product not found: ${productId}`)
+
+  const p = data.data.product
   return {
-    id: p.id,
+    id: p.id.split('/').pop(),
     title: p.title,
-    price: p.variants?.[0]?.price || '0.00',
-    images: p.images.map(img => img.src),
-    description: p.body_html?.replace(/<[^>]*>/g, '').slice(0, 200) || ''
+    price: p.variants.edges[0]?.node.price || '0.00',
+    images: p.images.edges.map(e => e.node.url),
+    description: p.descriptionHtml?.replace(/<[^>]*>/g, '').slice(0, 200) || ''
   }
 }
 
 export async function getShopInfo(shop, accessToken) {
-  const data = await shopifyFetch(shop, accessToken, 'shop.json')
+  const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      query: `{
+        shop {
+          name
+          currencyCode
+          myshopifyDomain
+          email
+        }
+      }`
+    })
+  })
+
+  const data = await res.json()
+  console.log('Shop GraphQL:', JSON.stringify(data).slice(0, 200))
+
+  if (!data.data?.shop) throw new Error('Failed to get shop info')
+
+  const s = data.data.shop
   return {
-    name: data.shop.name,
-    currency: data.shop.currency,
-    domain: data.shop.domain,
-    email: data.shop.email
+    name: s.name,
+    currency: s.currencyCode,
+    domain: s.myshopifyDomain,
+    email: s.email
   }
 }
