@@ -1,21 +1,20 @@
-import dotenv from 'dotenv'
-dotenv.config()
-
-const SHOPIFY_API_VERSION = '2024-07'
+const SHOPIFY_API_VERSION = '2026-04'
 
 export async function shopifyFetch(shop, accessToken, endpoint) {
   const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`
+  console.log('Shopify fetch:', url)
+  console.log('Using token:', accessToken?.slice(0, 10) + '...')
   const res = await fetch(url, {
     headers: {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json'
     }
   })
+  console.log('Shopify response status:', res.status)
   if (!res.ok) throw new Error(`Shopify API error: ${res.status}`)
   return res.json()
 }
 
-// Get all products with images
 export async function getProducts(shop, accessToken, limit = 20) {
   const data = await shopifyFetch(shop, accessToken, `products.json?limit=${limit}&fields=id,title,images,variants`)
   return data.products.map(p => ({
@@ -27,7 +26,6 @@ export async function getProducts(shop, accessToken, limit = 20) {
   }))
 }
 
-// Get single product
 export async function getProduct(shop, accessToken, productId) {
   const data = await shopifyFetch(shop, accessToken, `products/${productId}.json`)
   const p = data.product
@@ -40,7 +38,6 @@ export async function getProduct(shop, accessToken, productId) {
   }
 }
 
-// Get store info (name, currency, domain)
 export async function getShopInfo(shop, accessToken) {
   const data = await shopifyFetch(shop, accessToken, 'shop.json')
   return {
