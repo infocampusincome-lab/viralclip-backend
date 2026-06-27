@@ -1,4 +1,4 @@
-const SHOPIFY_API_VERSION = '2026-04'
+const SHOPIFY_API_VERSION = '2024-07'
 
 export async function shopifyFetch(shop, accessToken, endpoint) {
   const url = `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/${endpoint}`
