@@ -7,13 +7,52 @@ dotenv.config()
 const router = express.Router()
 const { SHOPIFY_API_KEY, SHOPIFY_API_SECRET, SHOPIFY_SCOPES, HOST, FRONTEND_URL } = process.env
 
+// Register GDPR mandatory webhooks
+async function registerWebhooks(shop, accessToken) {
+  const webhooks = [
+    { topic: 'customers/data_request', address: `${HOST}/webhooks/customers/data_request` },
+    { topic: 'customers/redact', address: `${HOST}/webhooks/customers/redact` },
+    { topic: 'shop/redact', address: `${HOST}/webhooks/shop/redact` },
+    { topic: 'app/uninstalled', address: `${HOST}/webhooks/app/uninstalled` },
+  ]
+
+  for (const webhook of webhooks) {
+    try {
+      const res = await fetch(`https://${shop}/admin/api/2026-04/webhooks.json`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': accessToken,
+        },
+        body: JSON.stringify({
+          webhook: {
+            topic: webhook.topic,
+            address: webhook.address,
+            format: 'json',
+          },
+        }),
+      })
+      const data = await res.json()
+      if (data.webhook) {
+        console.log(`Webhook registered: ${webhook.topic}`)
+      } else {
+        console.log(`Webhook already exists or failed for ${webhook.topic}:`, JSON.stringify(data))
+      }
+    } catch (err) {
+      console.error(`Failed to register webhook ${webhook.topic}:`, err)
+    }
+  }
+}
+
 router.get('/install', (req, res) => {
   const { shop } = req.query
   if (!shop) return res.status(400).send('Missing shop parameter')
   console.log('Install request for shop:', shop)
+
   const state = crypto.randomBytes(16).toString('hex')
   const redirectUri = `${HOST}/auth/callback`
   const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}&grant_options[]=per-user`
+
   console.log('Redirecting to:', installUrl)
   res.redirect(installUrl)
 })
@@ -44,8 +83,8 @@ router.get('/callback', async (req, res) => {
       body: JSON.stringify({
         client_id: SHOPIFY_API_KEY,
         client_secret: SHOPIFY_API_SECRET,
-        code
-      })
+        code,
+      }),
     })
 
     const tokenData = await response.json()
@@ -67,7 +106,12 @@ router.get('/callback', async (req, res) => {
       [shop, access_token, scope]
     )
     console.log('Session saved for shop:', shop)
-    res.redirect(`${FRONTEND_URL}?shop=${shop}&installed=true`)
+
+    // Register webhooks after successful install
+    await registerWebhooks(shop, access_token)
+
+    // Redirect to Shopify admin grant page (fixes Problem 1)
+    res.redirect(`https://${shop}/admin/apps/${SHOPIFY_API_KEY}`)
   } catch (err) {
     console.error('OAuth callback error:', err)
     res.status(500).send('Auth failed')
