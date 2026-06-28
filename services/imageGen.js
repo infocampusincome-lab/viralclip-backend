@@ -28,7 +28,6 @@ function truncate(str, max) {
   return str.length > max ? str.slice(0, max - 3) + '...' : str
 }
 
-// ─── REMOVE BACKGROUND ────────────────────────────────────────────
 async function removeBackground(imageBuffer) {
   const res = await fetch('https://api.remove.bg/v1.0/removebg', {
     method: 'POST',
@@ -42,44 +41,29 @@ async function removeBackground(imageBuffer) {
       format: 'png'
     }).toString()
   })
-
   if (!res.ok) {
     const err = await res.text()
     console.error('Remove.bg error:', err)
     throw new Error(`Remove.bg failed: ${res.status}`)
   }
-
   return Buffer.from(await res.arrayBuffer())
 }
 
-// ─── STYLE CONFIGS ────────────────────────────────────────────────
 const STYLES = {
-  promo: {
-    bg1: '#0d0015', bg2: '#2d0057', accent: '#7B61FF',
-    spotlight: 'rgba(123,97,255,0.18)', floor: 'rgba(123,97,255,0.08)'
-  },
-  arrival: {
-    bg1: '#000d1a', bg2: '#00234d', accent: '#0EA5E9',
-    spotlight: 'rgba(14,165,233,0.15)', floor: 'rgba(14,165,233,0.07)'
-  },
-  minimal: {
-    bg1: '#050505', bg2: '#181818', accent: '#FFFFFF',
-    spotlight: 'rgba(255,255,255,0.10)', floor: 'rgba(255,255,255,0.05)'
-  },
-  story: {
-    bg1: '#0d0600', bg2: '#2d1500', accent: '#F59E0B',
-    spotlight: 'rgba(245,158,11,0.15)', floor: 'rgba(245,158,11,0.07)'
-  }
+  promo:   { bg1: '#0d0015', bg2: '#2d0057', accent: '#7B61FF' },
+  arrival: { bg1: '#000d1a', bg2: '#00234d', accent: '#0EA5E9' },
+  minimal: { bg1: '#050505', bg2: '#181818', accent: '#FFFFFF' },
+  story:   { bg1: '#0d0600', bg2: '#2d1500', accent: '#F59E0B' }
 }
 
-// ─── PHOTOSHOOT STYLE IMAGE AD (1080x1080) ────────────────────────
 export async function generateNormalImage({ imageUrl, headline, subtext, cta, price, currency, style }) {
   const W = 1080, H = 1080
   const jobId = uuidv4()
   const filename = `${jobId}.png`
   const outputPath = path.join(OUTPUT_DIR, filename)
 
-  const cfg = STYLES[style] || STYLES.minimal
+  const cfg = STYLES[style] || STYLES.promo
+  console.log('Style:', style, 'Config:', cfg)
 
   console.log('Fetching product image...')
   const imgBuffer = await fetchImageBuffer(imageUrl)
@@ -94,121 +78,80 @@ export async function generateNormalImage({ imageUrl, headline, subtext, cta, pr
     productPng = await sharp(imgBuffer).png().toBuffer()
   }
 
-  // Product size — large, hero style
-  const productW = Math.floor(W * 0.80)
-  const productH = Math.floor(H * 0.58)
+  const productW = Math.floor(W * 0.78)
+  const productH = Math.floor(H * 0.56)
   const resizedProduct = await sharp(productPng)
-    .resize(productW, productH, {
-      fit: 'contain',
-      background: { r: 0, g: 0, b: 0, alpha: 0 }
-    })
+    .resize(productW, productH, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .png()
     .toBuffer()
 
   const productLeft = Math.floor((W - productW) / 2)
-  const productTop = Math.floor(H * 0.06)
+  const productTop = Math.floor(H * 0.05)
 
-  // ── Background SVG ──
+  // Build background using sharp directly — more reliable than SVG gradients
+  const bgBuffer = await sharp({
+    create: { width: W, height: H, channels: 3, background: { r: 13, g: 0, b: 21 } }
+  }).png().toBuffer()
+
+  const safeHeadline = escapeXml(truncate(headline || 'Shop Now', 28))
+  const safeSubtext = escapeXml(truncate(subtext || '', 52))
+  const safeCta = escapeXml(truncate(cta || 'Shop Now', 20))
+  const safePrice = price ? escapeXml(`${currency} ${price}`) : ''
+
+  const textY = productTop + productH + 55
+  const subY = textY + 78
+  const lineY = subY + 44
+
+  // Parse accent color to rgb for backgrounds
+  const accentHex = cfg.accent.replace('#', '')
+  const ar = parseInt(accentHex.slice(0,2), 16)
+  const ag = parseInt(accentHex.slice(2,4), 16)
+  const ab = parseInt(accentHex.slice(4,6), 16)
+
+  // Gradient background SVG — using rgba(0,0,0,0) instead of 'transparent'
   const bgSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <!-- Deep dark bg gradient -->
       <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="${cfg.bg2}"/>
         <stop offset="100%" stop-color="${cfg.bg1}"/>
       </linearGradient>
-
-      <!-- Dramatic spotlight behind product -->
-      <radialGradient id="spot" cx="50%" cy="38%" r="42%">
-        <stop offset="0%" stop-color="${cfg.spotlight}"/>
-        <stop offset="100%" stop-color="transparent"/>
+      <radialGradient id="spot" cx="50%" cy="35%" r="45%">
+        <stop offset="0%" stop-color="rgba(${ar},${ag},${ab},0.2)"/>
+        <stop offset="100%" stop-color="rgba(${ar},${ag},${ab},0)"/>
       </radialGradient>
-
-      <!-- Floor reflection gradient -->
-      <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${cfg.floor}"/>
-        <stop offset="100%" stop-color="transparent"/>
-      </linearGradient>
-
-      <!-- Vignette -->
-      <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
-        <stop offset="60%" stop-color="transparent"/>
-        <stop offset="100%" stop-color="rgba(0,0,0,0.55)"/>
+      <radialGradient id="vign" cx="50%" cy="50%" r="70%">
+        <stop offset="55%" stop-color="rgba(0,0,0,0)"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0.6)"/>
       </radialGradient>
-
-      <!-- Bottom text area gradient -->
-      <linearGradient id="textbg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="transparent"/>
+      <linearGradient id="textfade" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="rgba(0,0,0,0)"/>
         <stop offset="100%" stop-color="${cfg.bg1}"/>
       </linearGradient>
     </defs>
-
-    <!-- Base background -->
     <rect width="${W}" height="${H}" fill="url(#bg)"/>
-
-    <!-- Spotlight glow -->
     <rect width="${W}" height="${H}" fill="url(#spot)"/>
-
-    <!-- Studio floor surface (bottom 30%) -->
-    <rect x="0" y="${H * 0.68}" width="${W}" height="${H * 0.32}" fill="url(#floor)"/>
-
-    <!-- Floor dividing line -->
-    <line x1="0" y1="${H * 0.68}" x2="${W}" y2="${H * 0.68}" stroke="${cfg.accent}" stroke-width="0.5" stroke-opacity="0.25"/>
-
-    <!-- Vignette edges -->
-    <rect width="${W}" height="${H}" fill="url(#vignette)"/>
-
-    <!-- Text area fade -->
-    <rect x="0" y="${H * 0.62}" width="${W}" height="${H * 0.38}" fill="url(#textbg)" opacity="0.85"/>
+    <rect width="${W}" height="${H}" fill="url(#vign)"/>
+    <rect x="0" y="${H * 0.60}" width="${W}" height="${H * 0.40}" fill="url(#textfade)" opacity="0.9"/>
+    <line x1="0" y1="${H * 0.68}" x2="${W}" y2="${H * 0.68}" stroke="${cfg.accent}" stroke-width="1" stroke-opacity="0.2"/>
   </svg>`
 
-  // ── Product shadow/reflection ──
   const shadowSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <radialGradient id="sh" cx="50%" cy="20%" r="50%">
-        <stop offset="0%" stop-color="rgba(0,0,0,0.5)"/>
-        <stop offset="100%" stop-color="transparent"/>
-      </radialGradient>
-    </defs>
-    <!-- Hard shadow ellipse under product -->
-    <ellipse cx="${W / 2}" cy="${productTop + productH + 18}" rx="${productW * 0.34}" ry="${productH * 0.04}" fill="rgba(0,0,0,0.45)"/>
-    <!-- Soft glow shadow -->
-    <ellipse cx="${W / 2}" cy="${productTop + productH + 22}" rx="${productW * 0.42}" ry="${productH * 0.07}" fill="url(#sh)"/>
+    <ellipse cx="${W/2}" cy="${productTop + productH + 16}" rx="${productW * 0.32}" ry="${productH * 0.038}" fill="rgba(0,0,0,0.5)"/>
+    <ellipse cx="${W/2}" cy="${productTop + productH + 24}" rx="${productW * 0.40}" ry="${productH * 0.065}" fill="rgba(0,0,0,0.2)"/>
   </svg>`
-
-  // ── Text overlay ──
-  const safeHeadline = escapeXml(truncate(headline, 28))
-  const safeSubtext = escapeXml(truncate(subtext, 52))
-  const safeCta = escapeXml(truncate(cta, 20))
-  const safePrice = escapeXml(`${currency} ${price}`)
-
-  const textY = productTop + productH + 60
-  const subY = textY + 82
-  const lineY = subY + 48
-  const ctaY = H - 44
 
   const textSvg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
-    <!-- Price badge — top right, pill shape -->
-    <rect x="${W - 220}" y="32" width="188" height="60" rx="30" fill="${cfg.accent}" opacity="0.92"/>
-    <text x="${W - 126}" y="72" font-family="Arial Black, Arial" font-size="27" font-weight="900" fill="white" text-anchor="middle">${safePrice}</text>
-
-    <!-- Accent dot top left -->
-    <circle cx="48" cy="52" r="6" fill="${cfg.accent}"/>
-
-    <!-- Headline — large, bold, left aligned -->
-    <text x="54" y="${textY}" font-family="Arial Black, Arial" font-size="66" font-weight="900" fill="white" letter-spacing="-1">${safeHeadline}</text>
-
-    <!-- Accent line under headline -->
-    <rect x="54" y="${textY + 14}" width="80" height="4" rx="2" fill="${cfg.accent}"/>
-
-    <!-- Subtext -->
-    <text x="54" y="${subY}" font-family="Arial, sans-serif" font-size="30" fill="rgba(255,255,255,0.72)" letter-spacing="0.5">${safeSubtext}</text>
-
-    <!-- CTA button — bottom left, pill style -->
-    <rect x="54" y="${lineY}" width="340" height="72" rx="36" fill="${cfg.accent}"/>
-    <text x="224" y="${lineY + 47}" font-family="Arial Black, Arial" font-size="30" font-weight="900" fill="white" text-anchor="middle">${safeCta} →</text>
-
-    <!-- Watermark bottom right -->
-    <text x="${W - 24}" y="${H - 24}" font-family="Arial, sans-serif" font-size="15" fill="rgba(255,255,255,0.15)" text-anchor="end">ViralClip</text>
+    ${safePrice ? `
+    <rect x="${W-218}" y="30" width="186" height="58" rx="29" fill="${cfg.accent}" opacity="0.95"/>
+    <text x="${W-125}" y="70" font-family="Arial Black,Arial" font-size="26" font-weight="900" fill="white" text-anchor="middle">${safePrice}</text>
+    ` : ''}
+    <circle cx="46" cy="50" r="5" fill="${cfg.accent}"/>
+    <text x="54" y="${textY}" font-family="Arial Black,Arial" font-size="64" font-weight="900" fill="white">${safeHeadline}</text>
+    <rect x="54" y="${textY + 12}" width="72" height="4" rx="2" fill="${cfg.accent}"/>
+    ${safeSubtext ? `<text x="54" y="${subY}" font-family="Arial,sans-serif" font-size="30" fill="rgba(255,255,255,0.75)">${safeSubtext}</text>` : ''}
+    <rect x="54" y="${lineY}" width="320" height="70" rx="35" fill="${cfg.accent}"/>
+    <text x="214" y="${lineY + 46}" font-family="Arial Black,Arial" font-size="28" font-weight="900" fill="white" text-anchor="middle">${safeCta} →</text>
+    <text x="${W-20}" y="${H-20}" font-family="Arial,sans-serif" font-size="14" fill="rgba(255,255,255,0.12)" text-anchor="end">MeshClip</text>
   </svg>`
 
   await sharp(Buffer.from(bgSvg))
@@ -220,7 +163,7 @@ export async function generateNormalImage({ imageUrl, headline, subtext, cta, pr
     .png()
     .toFile(outputPath)
 
-  console.log('Photoshoot image generated:', filename)
+  console.log('Image generated:', filename)
   return { jobId, outputPath, filename }
 }
 
