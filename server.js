@@ -6,6 +6,7 @@ import authRouter from './routes/auth.js'
 import productsRouter from './routes/products.js'
 import generateRouter from './routes/generate.js'
 import billingRouter from './routes/billing.js'
+import webhooksRouter from './routes/webhooks.js'
 
 dotenv.config()
 
@@ -13,15 +14,26 @@ const app = express()
 const PORT = process.env.PORT || 3001
 
 app.use(cors({ origin: '*' }))
+
+// Raw body needed for webhook verification
+app.use('/webhooks', express.raw({ type: 'application/json' }))
+
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
 app.get('/health', (_, res) => res.json({ status: 'ok', service: 'meshclip-backend' }))
 
+app.get('/', (req, res) => {
+  const shop = req.query.shop
+  if (shop) return res.redirect(`${process.env.FRONTEND_URL}?shop=${shop}`)
+  res.redirect(process.env.FRONTEND_URL)
+})
+
 app.use('/auth', authRouter)
 app.use('/products', productsRouter)
 app.use('/generate', generateRouter)
 app.use('/billing', billingRouter)
+app.use('/webhooks', webhooksRouter)
 
 async function start() {
   await initDB()
