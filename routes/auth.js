@@ -13,8 +13,7 @@ router.get('/install', (req, res) => {
   console.log('Install request for shop:', shop)
   const state = crypto.randomBytes(16).toString('hex')
   const redirectUri = `${HOST}/auth/callback`
-  // Request offline access token (expiring) - required by Shopify new policy
-  const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}&grant_options[]=offline`
+  const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}&grant_options[]=per-user`
   console.log('Redirecting to:', installUrl)
   res.redirect(installUrl)
 })
