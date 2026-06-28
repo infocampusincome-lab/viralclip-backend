@@ -25,7 +25,7 @@ app.get('/health', (_, res) => res.json({ status: 'ok', service: 'meshclip-backe
 
 app.get('/', (req, res) => {
   const shop = req.query.shop
-  if (shop) return res.redirect(`${process.env.FRONTEND_URL}?shop=${shop}`)
+  if (shop) return res.redirect(`/auth/install?shop=${shop}`)
   res.redirect(process.env.FRONTEND_URL)
 })
 
