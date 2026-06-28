@@ -13,9 +13,9 @@ router.get('/install', (req, res) => {
   console.log('Install request for shop:', shop)
   const state = crypto.randomBytes(16).toString('hex')
   const redirectUri = `${HOST}/auth/callback`
-  const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}`
+  // Request offline access token (expiring) - required by Shopify new policy
+  const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}&grant_options[]=offline`
   console.log('Redirecting to:', installUrl)
-  res.cookie('state', state, { httpOnly: true, sameSite: 'none', secure: true })
   res.redirect(installUrl)
 })
 
@@ -35,22 +35,32 @@ router.get('/callback', async (req, res) => {
     .digest('hex')
 
   console.log('HMAC check:', digest === hmac ? 'PASSED' : 'FAILED')
-
-  if (digest !== hmac) {
-    console.error('HMAC mismatch - digest:', digest, 'hmac:', hmac)
-    return res.status(401).send('HMAC verification failed')
-  }
+  if (digest !== hmac) return res.status(401).send('HMAC verification failed')
 
   try {
     console.log('Exchanging code for token...')
     const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_id: SHOPIFY_API_KEY, client_secret: SHOPIFY_API_SECRET, code })
+      body: JSON.stringify({
+        client_id: SHOPIFY_API_KEY,
+        client_secret: SHOPIFY_API_SECRET,
+        code
+      })
     })
-    const { access_token, scope } = await response.json()
-    console.log('Got access token, saving to DB...')
 
+    const tokenData = await response.json()
+    console.log('Token response:', JSON.stringify(tokenData))
+
+    const access_token = tokenData.access_token
+    const scope = tokenData.scope
+
+    if (!access_token) {
+      console.error('No access token received:', tokenData)
+      return res.status(500).send('Failed to get access token')
+    }
+
+    console.log('Got access token, saving to DB...')
     await query(
       `INSERT INTO sessions (shop, access_token, scope)
        VALUES ($1, $2, $3)
