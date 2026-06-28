@@ -110,8 +110,8 @@ router.get('/callback', async (req, res) => {
     // Register webhooks after successful install
     await registerWebhooks(shop, access_token)
 
-    // Redirect to Shopify admin grant page (fixes Problem 1)
-    res.redirect(`https://${shop}/admin/apps/${SHOPIFY_API_KEY}`)
+    // Redirect to frontend UI
+    res.redirect(`${FRONTEND_URL}?shop=${shop}&installed=true`)
   } catch (err) {
     console.error('OAuth callback error:', err)
     res.status(500).send('Auth failed')
