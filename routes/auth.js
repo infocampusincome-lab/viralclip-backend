@@ -51,7 +51,9 @@ router.get('/install', (req, res) => {
 
   const state = crypto.randomBytes(16).toString('hex')
   const redirectUri = `${HOST}/auth/callback`
-  const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}&grant_options[]=per-user`
+
+  // Removed grant_options[]=per-user to get offline access token
+  const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}`
 
   console.log('Redirecting to:', installUrl)
   res.redirect(installUrl)
@@ -110,7 +112,7 @@ router.get('/callback', async (req, res) => {
     // Register webhooks after successful install
     await registerWebhooks(shop, access_token)
 
-    // Redirect to frontend (standalone, not embedded)
+    // Redirect to frontend
     res.redirect(`${FRONTEND_URL}?shop=${shop}&installed=true`)
   } catch (err) {
     console.error('OAuth callback error:', err)
