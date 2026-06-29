@@ -110,8 +110,8 @@ router.get('/callback', async (req, res) => {
     // Register webhooks after successful install
     await registerWebhooks(shop, access_token)
 
-    // Redirect to Shopify embedded app URL
-    res.redirect(`https://admin.shopify.com/apps/meshclip`)
+    // Redirect to frontend (standalone, not embedded)
+    res.redirect(`${FRONTEND_URL}?shop=${shop}&installed=true`)
   } catch (err) {
     console.error('OAuth callback error:', err)
     res.status(500).send('Auth failed')
