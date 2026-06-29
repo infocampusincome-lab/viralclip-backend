@@ -9,34 +9,53 @@ const router = express.Router()
 // Verify webhook is from Shopify
 function verifyWebhook(req) {
   const hmac = req.headers['x-shopify-hmac-sha256']
-  const body = req.rawBody
+  const body = req.body // Buffer from express.raw()
+
   if (!hmac || !body) return false
+
   const digest = crypto
     .createHmac('sha256', process.env.SHOPIFY_API_SECRET)
     .update(body)
     .digest('base64')
-  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(hmac))
+  } catch {
+    return false
+  }
 }
 
 // GDPR: Customer data request
-router.post('/customers/data_request', express.raw({ type: 'application/json' }), (req, res) => {
+router.post('/customers/data_request', (req, res) => {
   console.log('Customer data request webhook received')
+  if (!verifyWebhook(req)) {
+    console.log('HMAC verification failed for customers/data_request')
+    return res.status(401).send('Unauthorized')
+  }
   // MeshClip does not store customer personal data
   res.status(200).send('OK')
 })
 
 // GDPR: Customer redact
-router.post('/customers/redact', express.raw({ type: 'application/json' }), (req, res) => {
+router.post('/customers/redact', (req, res) => {
   console.log('Customer redact webhook received')
+  if (!verifyWebhook(req)) {
+    console.log('HMAC verification failed for customers/redact')
+    return res.status(401).send('Unauthorized')
+  }
   // MeshClip does not store customer personal data — nothing to delete
   res.status(200).send('OK')
 })
 
 // GDPR: Shop redact — delete all shop data when merchant uninstalls
-router.post('/shop/redact', express.raw({ type: 'application/json' }), async (req, res) => {
+router.post('/shop/redact', async (req, res) => {
   console.log('Shop redact webhook received')
+  if (!verifyWebhook(req)) {
+    console.log('HMAC verification failed for shop/redact')
+    return res.status(401).send('Unauthorized')
+  }
   try {
-    const body = JSON.parse(req.body)
+    const body = JSON.parse(req.body.toString())
     const shop = body.myshopify_domain
     if (shop) {
       await query('DELETE FROM sessions WHERE shop = $1', [shop])
@@ -49,11 +68,15 @@ router.post('/shop/redact', express.raw({ type: 'application/json' }), async (re
   res.status(200).send('OK')
 })
 
-// App uninstalled webhook
-router.post('/app/uninstalled', express.raw({ type: 'application/json' }), async (req, res) => {
+// App uninstalled
+router.post('/app/uninstalled', async (req, res) => {
   console.log('App uninstalled webhook received')
+  if (!verifyWebhook(req)) {
+    console.log('HMAC verification failed for app/uninstalled')
+    return res.status(401).send('Unauthorized')
+  }
   try {
-    const body = JSON.parse(req.body)
+    const body = JSON.parse(req.body.toString())
     const shop = body.myshopify_domain
     if (shop) {
       await query('DELETE FROM sessions WHERE shop = $1', [shop])
