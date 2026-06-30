@@ -52,7 +52,6 @@ router.get('/install', (req, res) => {
   const state = crypto.randomBytes(16).toString('hex')
   const redirectUri = `${HOST}/auth/callback`
 
-  // Removed grant_options[]=per-user to get offline access token
   const installUrl = `https://${shop}/admin/oauth/authorize?client_id=${SHOPIFY_API_KEY}&scope=${SHOPIFY_SCOPES}&state=${state}&redirect_uri=${redirectUri}`
 
   console.log('Redirecting to:', installUrl)
@@ -78,7 +77,7 @@ router.get('/callback', async (req, res) => {
   if (digest !== hmac) return res.status(401).send('HMAC verification failed')
 
   try {
-    console.log('Exchanging code for token...')
+    console.log('Exchanging code for expiring offline token...')
     const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -86,6 +85,7 @@ router.get('/callback', async (req, res) => {
         client_id: SHOPIFY_API_KEY,
         client_secret: SHOPIFY_API_SECRET,
         code,
+        expiring: 1, // request expiring offline token (required for public apps)
       }),
     })
 
@@ -94,18 +94,33 @@ router.get('/callback', async (req, res) => {
 
     const access_token = tokenData.access_token
     const scope = tokenData.scope
+    const refresh_token = tokenData.refresh_token
+    const expires_in = tokenData.expires_in
+    const refresh_token_expires_in = tokenData.refresh_token_expires_in
 
     if (!access_token) {
       console.error('No access token received:', tokenData)
       return res.status(500).send('Failed to get access token')
     }
 
+    const expires_at = expires_in
+      ? new Date(Date.now() + expires_in * 1000)
+      : null
+    const refresh_token_expires_at = refresh_token_expires_in
+      ? new Date(Date.now() + refresh_token_expires_in * 1000)
+      : null
+
     console.log('Got access token, saving to DB...')
     await query(
-      `INSERT INTO sessions (shop, access_token, scope)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (shop) DO UPDATE SET access_token = $2, scope = $3`,
-      [shop, access_token, scope]
+      `INSERT INTO sessions (shop, access_token, scope, refresh_token, expires_at, refresh_token_expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (shop) DO UPDATE SET
+         access_token = $2,
+         scope = $3,
+         refresh_token = $4,
+         expires_at = $5,
+         refresh_token_expires_at = $6`,
+      [shop, access_token, scope, refresh_token, expires_at, refresh_token_expires_at]
     )
     console.log('Session saved for shop:', shop)
 
@@ -119,6 +134,39 @@ router.get('/callback', async (req, res) => {
     res.status(500).send('Auth failed')
   }
 })
+
+// Refresh an expiring offline token using its refresh_token
+export async function refreshAccessToken(shop, refreshToken) {
+  const response = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: SHOPIFY_API_KEY,
+      client_secret: SHOPIFY_API_SECRET,
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  })
+  const data = await response.json()
+  if (!data.access_token) {
+    throw new Error('Failed to refresh token: ' + JSON.stringify(data))
+  }
+
+  const expires_at = data.expires_in
+    ? new Date(Date.now() + data.expires_in * 1000)
+    : null
+  const refresh_token_expires_at = data.refresh_token_expires_in
+    ? new Date(Date.now() + data.refresh_token_expires_in * 1000)
+    : null
+
+  await query(
+    `UPDATE sessions SET access_token = $2, refresh_token = $3, expires_at = $4, refresh_token_expires_at = $5
+     WHERE shop = $1`,
+    [shop, data.access_token, data.refresh_token, expires_at, refresh_token_expires_at]
+  )
+
+  return data.access_token
+}
 
 export async function getSession(shop) {
   const result = await query('SELECT * FROM sessions WHERE shop = $1', [shop])
