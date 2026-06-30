@@ -25,67 +25,67 @@ function verifyWebhook(req) {
   }
 }
 
-// GDPR: Customer data request
-router.post('/customers/data_request', (req, res) => {
-  console.log('Customer data request webhook received')
-  if (!verifyWebhook(req)) {
-    console.log('HMAC verification failed for customers/data_request')
-    return res.status(401).send('Unauthorized')
-  }
-  // MeshClip does not store customer personal data
-  res.status(200).send('OK')
-})
+// Unified compliance webhook endpoint
+// Shopify sends customers/data_request, customers/redact, and shop/redact
+// all to this single URI, differentiated by the X-Shopify-Topic header
+router.post('/', async (req, res) => {
+  const topic = req.headers['x-shopify-topic']
+  console.log('Webhook received, topic:', topic)
 
-// GDPR: Customer redact
-router.post('/customers/redact', (req, res) => {
-  console.log('Customer redact webhook received')
   if (!verifyWebhook(req)) {
-    console.log('HMAC verification failed for customers/redact')
+    console.log('HMAC verification failed for topic:', topic)
     return res.status(401).send('Unauthorized')
   }
-  // MeshClip does not store customer personal data — nothing to delete
-  res.status(200).send('OK')
-})
 
-// GDPR: Shop redact — delete all shop data when merchant uninstalls
-router.post('/shop/redact', async (req, res) => {
-  console.log('Shop redact webhook received')
-  if (!verifyWebhook(req)) {
-    console.log('HMAC verification failed for shop/redact')
-    return res.status(401).send('Unauthorized')
-  }
+  let body = {}
   try {
-    const body = JSON.parse(req.body.toString())
-    const shop = body.myshopify_domain
-    if (shop) {
-      await query('DELETE FROM sessions WHERE shop = $1', [shop])
-      await query('DELETE FROM videos WHERE shop = $1', [shop])
-      console.log('Shop data deleted for:', shop)
-    }
+    body = JSON.parse(req.body.toString())
   } catch (err) {
-    console.error('Shop redact error:', err)
+    console.error('Failed to parse webhook body:', err)
   }
-  res.status(200).send('OK')
-})
 
-// App uninstalled
-router.post('/app/uninstalled', async (req, res) => {
-  console.log('App uninstalled webhook received')
-  if (!verifyWebhook(req)) {
-    console.log('HMAC verification failed for app/uninstalled')
-    return res.status(401).send('Unauthorized')
-  }
   try {
-    const body = JSON.parse(req.body.toString())
-    const shop = body.myshopify_domain
-    if (shop) {
-      await query('DELETE FROM sessions WHERE shop = $1', [shop])
-      console.log('Session deleted for uninstalled shop:', shop)
+    switch (topic) {
+      case 'customers/data_request':
+        console.log('Customer data request webhook received')
+        // MeshClip does not store customer personal data
+        break
+
+      case 'customers/redact':
+        console.log('Customer redact webhook received')
+        // MeshClip does not store customer personal data — nothing to delete
+        break
+
+      case 'shop/redact': {
+        console.log('Shop redact webhook received')
+        const shop = body.shop_domain || body.myshopify_domain
+        if (shop) {
+          await query('DELETE FROM sessions WHERE shop = $1', [shop])
+          await query('DELETE FROM videos WHERE shop = $1', [shop])
+          console.log('Shop data deleted for:', shop)
+        }
+        break
+      }
+
+      case 'app/uninstalled': {
+        console.log('App uninstalled webhook received')
+        const shop = body.myshopify_domain || body.domain
+        if (shop) {
+          await query('DELETE FROM sessions WHERE shop = $1', [shop])
+          console.log('Session deleted for uninstalled shop:', shop)
+        }
+        break
+      }
+
+      default:
+        console.log('Unhandled webhook topic:', topic)
     }
+
+    res.status(200).send('OK')
   } catch (err) {
-    console.error('Uninstall webhook error:', err)
+    console.error('Webhook processing error:', err)
+    res.status(200).send('OK') // still acknowledge receipt to avoid retries
   }
-  res.status(200).send('OK')
 })
 
 export default router
