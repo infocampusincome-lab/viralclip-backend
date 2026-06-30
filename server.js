@@ -29,6 +29,21 @@ app.get('/', (req, res) => {
   res.redirect(process.env.FRONTEND_URL)
 })
 
+// ONE-TIME: Run DB migration to add expiring token columns
+app.get('/run-migration', async (req, res) => {
+  try {
+    await query(`
+      ALTER TABLE sessions
+        ADD COLUMN IF NOT EXISTS refresh_token TEXT,
+        ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS refresh_token_expires_at TIMESTAMP;
+    `)
+    res.json({ success: true, message: 'Migration completed' })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // ONE-TIME: Register webhooks for existing shops
 app.get('/setup-webhooks', async (req, res) => {
   try {
