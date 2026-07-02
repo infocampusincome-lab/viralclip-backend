@@ -10,6 +10,7 @@ dotenv.config()
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const TEMP_DIR = path.join(__dirname, '../temp')
 const OUTPUT_DIR = path.join(__dirname, '../outputs')
+const MUSIC_DIR = path.join(__dirname, '../music')
 
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true })
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
@@ -25,6 +26,34 @@ const STYLE_COLORS = {
   arrival: '#7B61FF',
   minimal: '#111111',
   story:   '#F4A261'
+}
+
+// Map mood names to actual filenames
+export const MUSIC_TRACKS = [
+  { id: 'none',        label: 'No Music',    file: null,               emoji: '🔇' },
+  { id: 'unbeat',      label: 'Upbeat',      file: 'unbeat.mp3',       emoji: '⚡' },
+  { id: 'chill',       label: 'Chill',       file: 'chill.mp3',        emoji: '😌' },
+  { id: 'dramatic',    label: 'Dramatic',    file: 'dramatic.mp3',     emoji: '🎭' },
+  { id: 'inspiring',   label: 'Inspiring',   file: 'inspiring.mp3',    emoji: '🌟' },
+  { id: 'corporate',   label: 'Corporate',   file: 'corporate.mp3',    emoji: '💼' },
+  { id: 'romantic',    label: 'Romantic',    file: 'romantic.mp3',     emoji: '❤️' },
+  { id: 'energetic',   label: 'Energetic',   file: 'energetic.mp3',    emoji: '🔥' },
+  { id: 'motivational',label: 'Motivational',file: 'motivational.mp3', emoji: '💪' },
+  { id: 'ambient',     label: 'Ambient',     file: 'ambient.mp3',      emoji: '🌊' },
+  { id: 'happy',       label: 'Happy',       file: 'happy.mp3',        emoji: '😊' },
+  { id: 'epic',        label: 'Epic',        file: 'epic.mp3',         emoji: '🏆' },
+  { id: 'sad',         label: 'Sad',         file: 'sad.mp3',          emoji: '😢' },
+  { id: 'funky',       label: 'Funky',       file: 'funky.mp3',        emoji: '🎸' },
+  { id: 'cinimatic',   label: 'Cinematic',   file: 'cinimatic.mp3',    emoji: '🎬' },
+  { id: 'urban',       label: 'Urban',       file: 'urban.mp3',        emoji: '🏙️' },
+]
+
+// How many tracks each plan can access (by index in MUSIC_TRACKS, skipping 'none')
+export const PLAN_MUSIC_LIMITS = {
+  free:      2,
+  starter:   5,
+  pro:       10,
+  unlimited: 15
 }
 
 async function downloadImage(url, destPath) {
@@ -61,6 +90,8 @@ export async function generateVideo({
   cta,
   style = 'promo',
   platform = 'tiktok',
+  musicId = 'none',
+  customMusicPath = null,
 }) {
   const jobId = uuidv4()
   const jobDir = path.join(TEMP_DIR, jobId)
@@ -68,9 +99,8 @@ export async function generateVideo({
 
   const { width, height } = PLATFORMS[platform] || PLATFORMS.tiktok
   const colorBar = STYLE_COLORS[style] || STYLE_COLORS.promo
-  const duration = 3 // seconds per image — fast and lean
+  const duration = 3
 
-  // Limit to 5 images max
   const imageUrls = images.slice(0, 5)
   if (imageUrls.length === 0) throw new Error('No images provided')
 
@@ -86,18 +116,34 @@ export async function generateVideo({
   const totalDuration = duration * localImages.length
   const textFilter = buildTextFilter(headline, subtext, cta, width, height, colorBar)
 
+  // Resolve music file
+  let musicPath = null
+  if (customMusicPath && fs.existsSync(customMusicPath)) {
+    musicPath = customMusicPath
+  } else if (musicId && musicId !== 'none') {
+    const track = MUSIC_TRACKS.find(t => t.id === musicId)
+    if (track?.file) {
+      const candidate = path.join(MUSIC_DIR, track.file)
+      if (fs.existsSync(candidate)) musicPath = candidate
+    }
+  }
+
   return new Promise((resolve, reject) => {
     let cmd = ffmpeg()
 
-    // Add each image as input
+    // Add image inputs
     localImages.forEach(imgPath => {
       cmd = cmd.input(imgPath).inputOptions([`-loop 1`, `-t ${duration}`])
     })
 
+    // Add music input if available
+    if (musicPath) {
+      cmd = cmd.input(musicPath)
+    }
+
     const filterParts = []
     const streamLabels = []
 
-    // Simple scale + fade in/out per image (no zoompan — much faster)
     localImages.forEach((_, i) => {
       filterParts.push(
         `[${i}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,` +
@@ -107,29 +153,44 @@ export async function generateVideo({
       streamLabels.push(`[v${i}]`)
     })
 
-    // Concat all streams
     filterParts.push(`${streamLabels.join('')}concat=n=${localImages.length}:v=1:a=0[vconcat]`)
-
-    // Add text overlays
     filterParts.push(`[vconcat]${textFilter}[vout]`)
 
-    cmd
-      .complexFilter(filterParts.join(';'))
-      .outputOptions([
-        '-map [vout]',
-        '-c:v libx264',
-        '-preset ultrafast',
-        '-crf 28',
-        '-pix_fmt yuv420p',
-        '-movflags +faststart',
-        `-t ${totalDuration}`
+    const outputOptions = [
+      '-map [vout]',
+      '-c:v libx264',
+      '-preset ultrafast',
+      '-crf 28',
+      '-pix_fmt yuv420p',
+      '-movflags +faststart',
+      `-t ${totalDuration}`
+    ]
+
+    if (musicPath) {
+      const musicInputIndex = localImages.length
+      // Fade music out in last 2 seconds
+      cmd.complexFilter([
+        ...filterParts,
+        `[${musicInputIndex}:a]afade=t=out:st=${totalDuration - 2}:d=2,atrim=0:${totalDuration}[aout]`
       ])
+      outputOptions.push('-map [aout]')
+      outputOptions.push('-c:a aac')
+      outputOptions.push('-b:a 128k')
+    } else {
+      cmd.complexFilter(filterParts)
+    }
+
+    cmd
+      .outputOptions(outputOptions)
       .output(outputPath)
       .on('start', cmdLine => console.log('FFmpeg started:', cmdLine.slice(0, 120)))
       .on('progress', p => console.log(`FFmpeg progress: ${Math.round(p.percent || 0)}%`))
       .on('end', () => {
         console.log('FFmpeg done:', outputPath)
         fs.rmSync(jobDir, { recursive: true, force: true })
+        if (customMusicPath && fs.existsSync(customMusicPath)) {
+          fs.unlinkSync(customMusicPath)
+        }
         resolve({ jobId, outputPath, filename: `${jobId}.mp4` })
       })
       .on('error', (err) => {
