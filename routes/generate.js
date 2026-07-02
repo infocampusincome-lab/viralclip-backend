@@ -6,6 +6,7 @@ import { requireShop } from '../middleware/auth.js'
 import { generateAdCopy, generateImagePrompt } from '../services/groq.js'
 import { getProduct, getShopInfo } from '../services/shopify.js'
 import { generateNormalImage, generateUGCImage } from '../services/imageGen.js'
+import { generateVideo } from '../services/ffmpeg.js'
 import { query } from '../db/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -46,7 +47,7 @@ router.post('/copy', requireShop, async (req, res) => {
   }
 })
 
-// POST /generate/prompt — generate AI image prompt for UGC
+// POST /generate/prompt
 router.post('/prompt', requireShop, async (req, res) => {
   const { productId, creatorType } = req.body
   const { session, shop } = req
@@ -63,7 +64,7 @@ router.post('/prompt', requireShop, async (req, res) => {
   }
 })
 
-// POST /generate/image — Normal or UGC image
+// POST /generate/image
 router.post('/image', requireShop, async (req, res) => {
   const { productId, style, imageType, headline, subtext, cta, aiImageUrl } = req.body
   const { session, shop } = req
@@ -98,7 +99,6 @@ router.post('/image', requireShop, async (req, res) => {
     let result
 
     if (imageType === 'ugc') {
-      // Use AI-generated image URL from frontend if provided, else fallback to product image
       const imageUrl = aiImageUrl || product.images[0]
       result = await generateUGCImage({
         imageUrl,
@@ -140,6 +140,82 @@ router.post('/image', requireShop, async (req, res) => {
   }
 })
 
+// POST /generate/video — Video slideshow using FFmpeg
+router.post('/video', requireShop, async (req, res) => {
+  const { productId, images, transition, duration, format, headline, subtext, cta } = req.body
+  const { session, shop } = req
+
+  const limit = PLAN_LIMITS[session.plan] || PLAN_LIMITS.free
+  if (session.videos_used >= limit) {
+    return res.status(403).json({ error: 'Limit reached', upgrade: true })
+  }
+
+  if (!images || images.length < 2) {
+    return res.status(400).json({ error: 'At least 2 images are required' })
+  }
+
+  try {
+    const [product, shopInfo] = await Promise.all([
+      getProduct(shop, session.access_token, productId),
+      getShopInfo(shop, session.access_token)
+    ])
+
+    // Generate copy if not provided
+    let finalHeadline = headline
+    let finalSubtext = subtext
+    let finalCta = cta || 'Shop Now'
+
+    if (!finalHeadline || !finalSubtext) {
+      const copy = await generateAdCopy({
+        productTitle: product.title,
+        price: product.price,
+        currency: shopInfo.currency,
+        style: 'promo',
+        cta: finalCta
+      })
+      finalHeadline = finalHeadline || copy.headline
+      finalSubtext = finalSubtext || copy.subtext
+    }
+
+    // Map format to platform for ffmpeg.js
+    const platformMap = { '9:16': 'tiktok', '1:1': 'instagram', '16:9': 'facebook' }
+    const platform = platformMap[format] || 'tiktok'
+
+    // Map transition to style for ffmpeg.js
+    const styleMap = { fade: 'promo', slide: 'arrival', zoom: 'minimal', kenburns: 'story' }
+    const style = styleMap[transition] || 'promo'
+
+    const { jobId, filename } = await generateVideo({
+      images,
+      headline: finalHeadline,
+      subtext: finalSubtext,
+      cta: finalCta,
+      style,
+      platform,
+      musicMood: 'none'
+    })
+
+    await query(
+      `INSERT INTO videos (id, shop, product_id, product_title, style, platform, headline, cta, file_path, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'done')`,
+      [jobId, shop, productId, product.title, 'slideshow', 'video', finalHeadline, finalCta, filename]
+    )
+
+    await query(`UPDATE sessions SET videos_used = videos_used + 1 WHERE shop = $1`, [shop])
+
+    res.json({
+      success: true,
+      jobId,
+      downloadUrl: `/generate/download/${filename}`,
+      isVideo: true,
+      product: { title: product.title }
+    })
+  } catch (err) {
+    console.error('Video gen error:', err)
+    res.status(500).json({ error: 'Video generation failed. Please try again.' })
+  }
+})
+
 // GET /generate/download/:filename
 router.get('/download/:filename', requireShop, (req, res) => {
   const { filename } = req.params
@@ -153,7 +229,7 @@ router.get('/download/:filename', requireShop, (req, res) => {
   const ext = path.extname(filename)
   const mimeType = ext === '.png' ? 'image/png' : 'video/mp4'
   res.setHeader('Content-Type', mimeType)
-  res.download(filePath, `viralclip-${Date.now()}${ext}`, () => {
+  res.download(filePath, `meshclip-${Date.now()}${ext}`, () => {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
   })
 })
