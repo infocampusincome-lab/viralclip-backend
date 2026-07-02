@@ -1,4 +1,5 @@
 import express from 'express'
+import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
@@ -6,13 +7,26 @@ import { requireShop } from '../middleware/auth.js'
 import { generateAdCopy, generateImagePrompt } from '../services/groq.js'
 import { getProduct, getShopInfo } from '../services/shopify.js'
 import { generateNormalImage, generateUGCImage } from '../services/imageGen.js'
-import { generateVideo } from '../services/ffmpeg.js'
+import { generateVideo, MUSIC_TRACKS, PLAN_MUSIC_LIMITS } from '../services/ffmpeg.js'
 import { query } from '../db/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const router = express.Router()
 
-const PLAN_LIMITS = { free: 999, starter: 30, pro: 100, unlimited: 99999 }
+const PLAN_LIMITS = { free: 5, starter: 30, pro: 70, unlimited: 99999 }
+
+// Multer for custom music upload (Unlimited plan only)
+const musicUpload = multer({
+  dest: path.join(__dirname, '../temp/'),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB max
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'audio/mpeg' || file.mimetype === 'audio/mp3' || file.originalname.endsWith('.mp3')) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only MP3 files are allowed'))
+    }
+  }
+})
 
 // TEMP ADMIN — remove before App Store submission
 router.get('/admin-reset', async (req, res) => {
@@ -22,6 +36,22 @@ router.get('/admin-reset', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
+})
+
+// GET /generate/music-tracks — return available tracks for current plan
+router.get('/music-tracks', requireShop, async (req, res) => {
+  const { session } = req
+  const plan = session.plan || 'free'
+  const limit = PLAN_MUSIC_LIMITS[plan] || 2
+  const canUpload = plan === 'unlimited'
+
+  // Always include 'none', then limit paid tracks
+  const availableTracks = [
+    MUSIC_TRACKS[0], // none
+    ...MUSIC_TRACKS.slice(1, limit + 1)
+  ]
+
+  res.json({ tracks: availableTracks, canUpload, plan })
 })
 
 // POST /generate/copy
@@ -140,18 +170,46 @@ router.post('/image', requireShop, async (req, res) => {
   }
 })
 
-// POST /generate/video — Video slideshow using FFmpeg
-router.post('/video', requireShop, async (req, res) => {
-  const { productId, images, transition, duration, format, headline, subtext, cta } = req.body
+// POST /generate/video — Video slideshow with optional music
+router.post('/video', requireShop, musicUpload.single('customMusic'), async (req, res) => {
+  const { productId, images: imagesRaw, transition, duration, format, headline, subtext, cta, musicId } = req.body
   const { session, shop } = req
 
   const limit = PLAN_LIMITS[session.plan] || PLAN_LIMITS.free
   if (session.videos_used >= limit) {
+    if (req.file) fs.unlinkSync(req.file.path)
     return res.status(403).json({ error: 'Limit reached', upgrade: true })
   }
 
+  // Parse images — can come as JSON string or array
+  let images
+  try {
+    images = typeof imagesRaw === 'string' ? JSON.parse(imagesRaw) : imagesRaw
+  } catch {
+    images = []
+  }
+
   if (!images || images.length < 2) {
+    if (req.file) fs.unlinkSync(req.file.path)
     return res.status(400).json({ error: 'At least 2 images are required' })
+  }
+
+  // Validate music access
+  const plan = session.plan || 'free'
+  const musicLimit = PLAN_MUSIC_LIMITS[plan] || 2
+  const canUpload = plan === 'unlimited'
+
+  if (req.file && !canUpload) {
+    fs.unlinkSync(req.file.path)
+    return res.status(403).json({ error: 'Custom music upload is only available on the Unlimited plan', upgrade: true })
+  }
+
+  if (musicId && musicId !== 'none') {
+    const trackIndex = MUSIC_TRACKS.findIndex(t => t.id === musicId)
+    if (trackIndex > musicLimit) {
+      if (req.file) fs.unlinkSync(req.file.path)
+      return res.status(403).json({ error: 'This music track requires a higher plan', upgrade: true })
+    }
   }
 
   try {
@@ -160,7 +218,6 @@ router.post('/video', requireShop, async (req, res) => {
       getShopInfo(shop, session.access_token)
     ])
 
-    // Generate copy if not provided
     let finalHeadline = headline
     let finalSubtext = subtext
     let finalCta = cta || 'Shop Now'
@@ -177,12 +234,9 @@ router.post('/video', requireShop, async (req, res) => {
       finalSubtext = finalSubtext || copy.subtext
     }
 
-    // Map format to platform for ffmpeg.js
     const platformMap = { '9:16': 'tiktok', '1:1': 'instagram', '16:9': 'facebook' }
-    const platform = platformMap[format] || 'tiktok'
-
-    // Map transition to style for ffmpeg.js
     const styleMap = { fade: 'promo', slide: 'arrival', zoom: 'minimal', kenburns: 'story' }
+    const platform = platformMap[format] || 'tiktok'
     const style = styleMap[transition] || 'promo'
 
     const { jobId, filename } = await generateVideo({
@@ -192,7 +246,8 @@ router.post('/video', requireShop, async (req, res) => {
       cta: finalCta,
       style,
       platform,
-      musicMood: 'none'
+      musicId: musicId || 'none',
+      customMusicPath: req.file?.path || null,
     })
 
     await query(
@@ -212,6 +267,7 @@ router.post('/video', requireShop, async (req, res) => {
     })
   } catch (err) {
     console.error('Video gen error:', err)
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path)
     res.status(500).json({ error: 'Video generation failed. Please try again.' })
   }
 })
