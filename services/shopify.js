@@ -40,7 +40,7 @@ export async function getProducts(shop, accessToken) {
                 id
                 title
                 variants(first: 1) { edges { node { price } } }
-                images(first: 3) { edges { node { url } } }
+                images(first: 10) { edges { node { url } } }
               }
             }
           }
